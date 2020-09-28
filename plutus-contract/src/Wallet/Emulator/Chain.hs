@@ -14,27 +14,29 @@
 {-# LANGUAGE TypeOperators         #-}
 module Wallet.Emulator.Chain where
 
-import           Codec.Serialise            (Serialise)
-import           Control.Lens               hiding (index)
+import           Codec.Serialise           (Serialise)
+import           Control.Lens              hiding (index)
 import           Control.Monad.Freer
+import           Control.Monad.Freer.Log   (LogMsg, logInfo, logDebug)
 import           Control.Monad.Freer.State
-import           Control.Monad.Freer.Writer
-import qualified Control.Monad.State        as S
-import           Data.Aeson                 (FromJSON, ToJSON)
-import           Data.List                  (partition, (\\))
-import           Data.Maybe                 (isNothing)
+import qualified Control.Monad.State       as S
+import           Data.Aeson                (FromJSON, ToJSON)
+import           Data.Foldable             (traverse_)
+import           Data.List                 (partition)
+import           Data.List                 ((\\))
+import           Data.Maybe                (isNothing)
 import           Data.Text.Prettyprint.Doc
-import           Data.Traversable           (for)
-import           GHC.Generics               (Generic)
-import           Ledger                     (Block, Blockchain, Slot (..), Tx (..), TxId, txId)
-import qualified Ledger.Index               as Index
-import qualified Ledger.Interval            as Interval
+import           Data.Traversable          (for)
+import           GHC.Generics              (Generic)
+import           Ledger                    (Block, Blockchain, Slot (..), Tx (..), TxId, txId)
+import qualified Ledger.Index              as Index
+import qualified Ledger.Interval           as Interval
 
 -- | Events produced by the blockchain emulator.
 data ChainEvent =
-    TxnValidate TxId
+    TxnValidate Tx
     -- ^ A transaction has been validated and added to the blockchain.
-    | TxnValidationFail TxId Index.ValidationError
+    | TxnValidationFail Tx Index.ValidationError
     -- ^ A transaction failed  to validate.
     | SlotAdd Slot
     deriving stock (Eq, Show, Generic)
@@ -42,7 +44,7 @@ data ChainEvent =
 
 instance Pretty ChainEvent where
     pretty = \case
-        TxnValidate t         -> "TxnValidate" <+> pretty t
+        TxnValidate t         -> "TxnValidate" <+> pretty (txId t)
         TxnValidationFail t e -> "TxnValidationFail" <+> pretty t <> colon <+> pretty e
         SlotAdd sl            -> "SlotAdd" <+> pretty sl
 
@@ -77,10 +79,10 @@ queueTx tx = send (QueueTx tx)
 getCurrentSlot :: Member ChainEffect effs => Eff effs Slot
 getCurrentSlot = send GetCurrentSlot
 
-type ChainEffs = '[State ChainState, Writer [ChainEvent]]
+type ChainEffs = '[State ChainState, LogMsg ChainEvent]
 
-handleControlChain :: Members ChainEffs effs => Eff (ChainControlEffect ': effs) ~> Eff effs
-handleControlChain = interpret $ \case
+handleControlChain :: Members ChainEffs effs => ChainControlEffect ~> Eff effs
+handleControlChain = \case
     ProcessBlock -> do
         st <- get
         let pool  = st ^. txPool
@@ -93,13 +95,18 @@ handleControlChain = interpret $ \case
                      & addBlock block
 
         put st'
-        tell events
+        traverse_ logEvent events
 
         pure block
 
-handleChain :: (Members ChainEffs effs) => Eff (ChainEffect ': effs) ~> Eff effs
-handleChain = interpret $ \case
-    QueueTx tx     -> modify $ over txPool (addTxToPool tx)
+logEvent :: Member (LogMsg ChainEvent) effs => ChainEvent -> Eff effs ()
+logEvent e = case e of
+    SlotAdd _ -> logDebug e
+    _ -> logInfo e
+
+handleChain :: (Members ChainEffs effs) => ChainEffect ~> Eff effs
+handleChain = \case
+    QueueTx tx -> modify $ over txPool (addTxToPool tx)
     GetCurrentSlot -> gets _currentSlot
 
 -- | The result of validating a block.
@@ -147,8 +154,8 @@ canValidateNow slot tx = Interval.member slot (txValidRange tx)
 mkValidationEvent :: Tx -> Maybe Index.ValidationError -> ChainEvent
 mkValidationEvent t result =
     case result of
-        Nothing  -> TxnValidate (txId t)
-        Just err -> TxnValidationFail (txId t) err
+        Nothing  -> TxnValidate t
+        Just err -> TxnValidationFail t err
 
 -- | Validate a transaction in the current emulator state.
 validateEm :: S.MonadState Index.UtxoIndex m => Slot -> Tx -> m (Maybe Index.ValidationError)

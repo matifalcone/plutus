@@ -72,11 +72,12 @@ library
         Wallet.Emulator.ChainIndex
         Wallet.Emulator.ChainIndex.Index
         Wallet.Emulator.Error
+        Wallet.Emulator.Folds
         Wallet.Emulator.LogMessages
         Wallet.Emulator.NodeClient
         Wallet.Emulator.Notify
         Wallet.Emulator.MultiAgent
-        Wallet.Emulator.SigningProcess
+        Wallet.Emulator.Stream
         Wallet.Emulator.Wallet
         Wallet.Rollup
         Wallet.Rollup.Types
@@ -88,10 +89,17 @@ library
         Wallet.Types
         Control.Monad.Freer.Extras
         Control.Monad.Freer.Log
+        Control.Monad.Freer.Stream
         Plutus.Trace
-        Plutus.Trace.Playground
+        Plutus.Trace.Effects.ContractInstanceId
         Plutus.Trace.Emulator
+        Plutus.Trace.Emulator.ContractInstance
+        Plutus.Trace.Emulator.System
+        Plutus.Trace.Emulator.Types
+        Plutus.Trace.Playground
+        Plutus.Trace.Scheduler
         Plutus.Trace.Types
+        Plutus.Trace.Tag
     hs-source-dirs: src
     build-depends:
         plutus-ledger -any,
@@ -127,7 +135,9 @@ library
         fingertree -any,
         uuid -any,
         aeson-pretty -any,
-        unordered-containers -any
+        unordered-containers -any,
+        foldl -any,
+        streaming -any
 
     if !(impl(ghcjs) || os(ghcjs))
         exposed-modules:

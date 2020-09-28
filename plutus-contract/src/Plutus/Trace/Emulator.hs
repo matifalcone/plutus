@@ -1,73 +1,250 @@
+{-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DataKinds           #-}
 {-# LANGUAGE FlexibleContexts    #-}
 {-# LANGUAGE GADTs               #-}
+{-# LANGUAGE LambdaCase          #-}
+{-# LANGUAGE NamedFieldPuns      #-}
+{-# LANGUAGE TemplateHaskell     #-}
 {-# LANGUAGE TypeApplications    #-}
 {-# LANGUAGE TypeFamilies        #-}
 {-# LANGUAGE TypeOperators       #-}
 
 module Plutus.Trace.Emulator(
     Emulator
+    , EmulatorTrace
+    , EmulatorErr(..)
     , ContractHandle(..)
-    , activateContract
-    , callEndpoint
-    , payToWallet
-    , waitUntilSlot
-    , etrace
+    , ContractInstanceTag(..)
+    , ContractConstraints
+    -- * Constructing Traces
+    , Types.activateContract
+    , Types.activateContractWallet
+    , Types.walletInstanceTag
+    , Types.callEndpoint
+    , Types.setSigningProcess
+    , Types.payToWallet
+    , Types.waitUntilSlot
+    , Types.waitNSlots
+    , Types.freezeContractInstance
+    , Types.thawContractInstance
+    , Types.setAgentClock
+    -- ** Inspecting the chain state
+    , Types.chainState
+    , ChainState.chainNewestFirst
+    , ChainState.txPool
+    , ChainState.index
+    , ChainState.currentSlot
+    -- ** Inspecting the agent states
+    , Types.agentState
+    , Wallet.ownPrivateKey
+    , Wallet.nodeClient
+    , Wallet.chainIndex
+    , Wallet.signingProcess
+    -- * Running traces
+    , EmulatorConfig(..)
+    , initialDistribution
+    , defaultEmulatorConfig
+    , runEmulatorStream
+    -- * Interpreter
+    , interpretEmulatorTrace
+    , emInterpreter
+    , emRunGlobal
     ) where
 
+import           Control.Lens
+import           Control.Monad                                   (void)
 import           Control.Monad.Freer
-import           Data.Proxy               (Proxy (..))
-import           Data.Void                (Void)
-import           Language.Plutus.Contract (type (.\/), BlockchainActions, Contract, Endpoint, HasEndpoint)
-import           Ledger.Slot              (Slot)
-import           Ledger.Value             (Value)
-import           Wallet.Emulator.Wallet   (Wallet (..))
-import           Wallet.Types             (ContractInstanceId)
+import           Control.Monad.Freer.Coroutine                   (Yield)
+import           Control.Monad.Freer.Error                       (Error)
+import           Control.Monad.Freer.Extras                      (raiseEnd)
+import           Control.Monad.Freer.Log                         (LogMessage (..), LogMsg (..),
+                                                                  mapLog)
+import           Control.Monad.Freer.Reader                      (runReader)
+import           Control.Monad.Freer.State                       (State, evalState, gets)
+import qualified Data.Aeson                                      as JSON
+import qualified Data.Map                                        as Map
+import           Data.Maybe                                      (fromMaybe)
+import           Data.Proxy                                      (Proxy)
+import           Language.Plutus.Contract                        (Contract, HasEndpoint, HasBlockchainActions)
+import qualified Language.Plutus.Contract.Effects.ExposeEndpoint as Endpoint
+import Ledger.Interval (Interval)
+import Ledger.TxId (TxId)
+import Ledger.Tx (txId)
+import           Ledger.Slot                                     (Slot (..))
+import           Ledger.Value                                    (Value)
+import           Plutus.Trace.Scheduler                          (Priority (..), SysCall (..), SystemCall,
+                                                                  Tag, fork, mkSysCall, runThreads, sleep)
+import           Wallet.API                                      (payToPublicKey)
+import qualified Wallet.Emulator                                 as EM
+import           Wallet.Emulator.Chain                           (ChainControlEffect, ChainEffect)
+import qualified Wallet.Emulator.Chain                           as ChainState
+import           Wallet.Emulator.MultiAgent                      (EmulatorEvent, EmulatorEvent' (..), EmulatorState,
+                                                                  MultiAgentEffect,
+                                                                  schedulerEvent, walletAction,
+                                                                  walletControlAction)
+import           Wallet.Emulator.Wallet                          (SigningProcess, Wallet (..))
+import qualified Wallet.Emulator.Wallet                          as Wallet
+import qualified Wallet.Emulator.Wallet                          as W
+import Wallet.Emulator.Stream (runTraceStream, EmulatorConfig(..), EmulatorErr(..), initialDistribution, defaultEmulatorConfig)
 
+import           Plutus.Trace.Effects.ContractInstanceId         (ContractInstanceIdEff, handleDeterministicIds, nextId)
+import           Plutus.Trace.Emulator.ContractInstance          (ContractInstanceError, contractThread, getThread)
+import           Plutus.Trace.Emulator.System                    (launchSystemThreads)
+import           Plutus.Trace.Emulator.Types                     (ContractConstraints, ContractHandle (..), Emulator,
+                                                                  EmulatorGlobal (..), EmulatorLocal (..),
+                                                                  EmulatorMessage (..), EmulatorThreads, ContractInstanceTag)
+import qualified Plutus.Trace.Emulator.Types                     as Types
 import           Plutus.Trace.Types
+import Streaming (Stream)
+import Streaming.Prelude (Of)
 
-data Emulator
+type EmulatorTrace a = Eff '[Trace Emulator] a
 
--- | A reference to an installed contract in the emulator.
-data ContractHandle s e =
-    ContractHandle
-        { chContract   :: Contract s e ()
-        , chInstanceId :: ContractInstanceId
-        }
+-- | Run a 'Trace Emulator', streaming the log messages as they arrive
+runEmulatorStream :: forall effs a.
+    EmulatorConfig
+    -> Eff '[Trace Emulator] a
+    -> Stream (Of (LogMessage EmulatorEvent)) (Eff effs) (Maybe EmulatorErr)
+runEmulatorStream conf = runTraceStream conf . interpretEmulatorTrace (conf ^. initialDistribution . to Map.keys)
 
-data EmulatorLocal r where
-    ActivateContract :: Contract s e () -> EmulatorLocal (ContractHandle s e)
-    CallEndpointEm :: forall l ep s e. HasEndpoint l ep s => Proxy l -> ContractHandle s e -> ep -> EmulatorLocal ()
-    PayToWallet :: Wallet -> Value -> EmulatorLocal ()
+-- | Interpret a 'Trace Emulator' action in the multi agent and emulated
+--   blockchain effects.
+interpretEmulatorTrace :: forall effs a.
+    ( Member MultiAgentEffect effs
+    , Member (Error ContractInstanceError) effs
+    , Member ChainEffect effs
+    , Member ChainControlEffect effs
+    , Member (LogMsg EmulatorEvent') effs
+    , Member (State EmulatorState) effs
+    )
+    => [Wallet] -- ^ Wallets that should be simulated in the emulator
+    -> Eff '[Trace Emulator] a
+    -> Eff effs ()
+interpretEmulatorTrace wallets action =
+    -- add a wait action to the beginning to ensure that the
+    -- initial transaction gets validated before the wallets
+    -- try to spend their funds
+    let action' = Types.waitNSlots 1 >> action in
+    evalState @EmulatorThreads mempty
+        $ handleDeterministicIds
+        $ interpret (mapLog (review schedulerEvent))
+        $ runThreads
+        $ do
+            launchSystemThreads wallets
+            interpret (handleTrace emInterpreter) $ void $ raiseEnd action'
 
-data EmulatorGlobal r where
-    WaitUntilSlot :: Slot -> EmulatorGlobal ()
+emInterpreter :: forall effs.
+    ( Member ContractInstanceIdEff effs
+    , Member (State EmulatorThreads) effs
+    , Member MultiAgentEffect effs
+    , Member (Error ContractInstanceError) effs
+    , Member (LogMsg EmulatorEvent') effs
+    , Member (State EmulatorState) effs
+    )
+    => TraceInterpreter Emulator effs EmulatorMessage
+emInterpreter = TraceInterpreter
+    { _runLocal = emRunLocal
+    , _runGlobal = emRunGlobal
+    }
 
-instance SimulatorBackend Emulator where
-    type LocalAction Emulator = EmulatorLocal
-    type GlobalAction Emulator = EmulatorGlobal
-    type Agent Emulator = Wallet
+emRunLocal :: forall b effs.
+    ( Member ContractInstanceIdEff effs
+    , Member (State EmulatorThreads) effs
+    , Member MultiAgentEffect effs
+    , Member (Error ContractInstanceError) effs
+    , Member (LogMsg EmulatorEvent') effs
+    , Member (State EmulatorState) effs
+    )
+    => Wallet
+    -> EmulatorLocal b
+    -> Eff (Yield (SystemCall effs EmulatorMessage) (Maybe EmulatorMessage) ': effs) b
+emRunLocal wllt = \case
+    ActivateContract tag con -> activate wllt con tag
+    CallEndpointEm p h v -> callEndpoint p h v
+    PayToWallet range target vl -> payToWallet range wllt target vl
+    SetSigningProcess sp -> setSigningProcess wllt sp
+    AgentState -> gets @EmulatorState (fromMaybe (Wallet.emptyWalletState wllt) . view (EM.walletStates . at wllt))
+    FreezeContractInstance i -> do
+        threadId <- getThread i
+        void $ mkSysCall @effs @EmulatorMessage Normal (Message threadId Freeze)
+    ThawContractInstance i -> do
+        threadId <- getThread i
+        void $ mkSysCall @effs @EmulatorMessage Normal (Thaw threadId)
+    SetAgentClock _ -> do
+        error "SetAgentClock: Not implemented"
 
-type EmulatorTrace a = Eff '[Simulator Emulator] a
 
-activateContract :: forall s e. Wallet -> Contract s e () -> EmulatorTrace (ContractHandle s e)
-activateContract wallet = send @(Simulator Emulator) . RunLocal wallet . ActivateContract
+payToWallet :: forall effs.
+    ( Member MultiAgentEffect effs )
+    => Interval Slot
+    -> Wallet
+    -> Wallet
+    -> Value
+    -> Eff (Yield (SystemCall effs EmulatorMessage) (Maybe EmulatorMessage) ': effs) TxId
+payToWallet range source target amount = do
+    -- TODO: Maybe this should also happen in a separate thread?
+    walletAction source $ fmap txId $ payToPublicKey range amount (EM.walletPubKey target)
 
-callEndpoint :: forall l ep s e. HasEndpoint l ep s => Wallet -> ContractHandle s e -> ep -> EmulatorTrace ()
-callEndpoint wallet hdl = send @(Simulator Emulator) . RunLocal wallet . CallEndpointEm (Proxy @l) hdl
+setSigningProcess :: forall effs.
+    ( Member MultiAgentEffect effs )
+    => Wallet
+    -> SigningProcess
+    -> Eff (Yield (SystemCall effs EmulatorMessage) (Maybe EmulatorMessage) ': effs) ()
+setSigningProcess wllt sp = void $ fork @effs @EmulatorMessage setSigningProcessTag Normal st
+    where st = walletControlAction wllt $ W.setSigningProcess sp
 
-payToWallet :: Wallet -> Wallet -> Value -> EmulatorTrace ()
-payToWallet from_ to_ =
-    send @(Simulator Emulator) . RunLocal from_ . PayToWallet to_
+setSigningProcessTag :: Tag
+setSigningProcessTag = "set signing process"
 
-waitUntilSlot :: Slot -> EmulatorTrace ()
-waitUntilSlot sl = send @(Simulator Emulator) $ RunGlobal (WaitUntilSlot sl)
+activate :: forall s e effs.
+    ( ContractConstraints s
+    , Member ContractInstanceIdEff effs
+    , Member (State EmulatorThreads) effs
+    , Member MultiAgentEffect effs
+    , Member (Error ContractInstanceError) effs
+    , Member (LogMsg EmulatorEvent') effs
+    , HasBlockchainActions s
+    , Show e
+    )
+    => Wallet
+    -> ContractInstanceTag
+    -> Contract s e ()
+    -> Eff (Yield (SystemCall effs EmulatorMessage) (Maybe EmulatorMessage) ': effs) (ContractHandle s e)
+activate wllt tag con = do
+    i <- nextId
+    let handle = ContractHandle{chContract=con, chInstanceId = i, chInstanceTag = tag}
+    _ <- fork @effs @EmulatorMessage runningContractInstanceTag Normal (runReader wllt $ interpret (mapLog InstanceEvent) $ reinterpret (mapLog InstanceEvent) $ contractThread handle)
+    pure handle
 
-myContract :: Contract (BlockchainActions .\/ Endpoint "my endpoint" Int) Void ()
-myContract = undefined
+runningContractInstanceTag :: Tag
+runningContractInstanceTag = "contract instance"
 
-etrace :: EmulatorTrace ()
-etrace = do
-    runningCon <- activateContract (Wallet 1) myContract
-    callEndpoint @"my endpoint" (Wallet 1) runningCon 10
+callEndpoint :: forall s l e ep effs.
+    ( ContractConstraints s
+    , HasEndpoint l ep s
+    , Member (State EmulatorThreads) effs
+    , Member (Error ContractInstanceError) effs
+    )
+    => Proxy l
+    -> ContractHandle s e
+    -> ep
+    -> Eff (Yield (SystemCall effs EmulatorMessage) (Maybe EmulatorMessage) ': effs) ()
+callEndpoint _ ContractHandle{chInstanceId} ep = do
+    let epJson = JSON.toJSON $ Endpoint.event @l @ep @s ep
+        thr = do
+            threadId <- getThread chInstanceId
+            void $ mkSysCall @effs @EmulatorMessage Normal (Message threadId $ EndpointCall epJson)
+    void $ fork @effs @EmulatorMessage callEndpointTag Normal thr
+
+callEndpointTag :: Tag
+callEndpointTag = "call endpoint"
+
+emRunGlobal :: forall b effs.
+    Member (State EmulatorState) effs
+    => EmulatorGlobal b
+    -> Eff (Yield (SystemCall effs EmulatorMessage) (Maybe EmulatorMessage) ': effs) b
+emRunGlobal = \case
+    WaitUntilSlot s -> go where
+        go = sleep @effs Sleeping >>= \case { Just (NewSlot sl) | sl >= s -> pure sl; _ -> go }
+    ChainState  -> gets (view EM.chainState)

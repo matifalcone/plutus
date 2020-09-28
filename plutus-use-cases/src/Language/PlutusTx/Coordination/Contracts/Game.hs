@@ -40,25 +40,31 @@ module Language.PlutusTx.Coordination.Contracts.Game
     , lockTrace
     ) where
 
-import           Control.Monad                   (void)
-import           Data.Aeson                      (FromJSON, ToJSON)
-import           GHC.Generics                    (Generic)
-import           IOTS                            (IotsType)
-import           Language.Plutus.Contract
-import           Language.Plutus.Contract.Schema ()
-import           Language.Plutus.Contract.Trace  (ContractTrace)
-import qualified Language.Plutus.Contract.Trace  as Trace
-import qualified Language.PlutusTx               as PlutusTx
-import           Language.PlutusTx.Prelude
-import           Ledger                          (Address, Validator, ValidatorCtx, Value)
-import qualified Ledger.Constraints              as Constraints
-import qualified Ledger.Typed.Scripts            as Scripts
-import           Schema                          (ToArgument, ToSchema)
+import Control.Monad (void)
+import Data.Aeson (FromJSON, ToJSON)
+import GHC.Generics (Generic)
+import IOTS (IotsType)
+import Language.Plutus.Contract
+import Language.Plutus.Contract.Schema ()
+import qualified Plutus.Trace.Emulator    as Trace
+import Plutus.Trace.Emulator (EmulatorTrace)
+import qualified Language.PlutusTx as PlutusTx
+import Language.PlutusTx.Prelude
+import qualified Ledger.Constraints as Constraints
+import qualified Ledger.Typed.Scripts as Scripts
+import Ledger
+    ( Address
+    , ValidatorCtx
+    , Validator
+    , Value
+    )
+import Schema (ToSchema, ToArgument)
+import Wallet.Emulator (Wallet(..))
 
-import qualified Ledger                          as Ledger
-import qualified Ledger.Ada                      as Ada
+import qualified Ledger as Ledger
+import qualified Ledger.Ada as Ada
 
-import qualified Data.ByteString.Char8           as C
+import qualified Data.ByteString.Char8 as C
 import qualified Prelude
 
 newtype HashedString = HashedString ByteString deriving newtype PlutusTx.IsData
@@ -139,28 +145,23 @@ guess = do
 game :: AsContractError e => Contract GameSchema e ()
 game = lock `select` guess
 
-lockTrace
-    :: ContractTrace GameSchema e () ()
-lockTrace =
-    let w1 = Trace.Wallet 1 in
-    Trace.callEndpoint @"lock" w1 (LockParams "secret" (Ada.lovelaceValueOf 10))
-        >> Trace.handleBlockchainEvents w1
-        >> Trace.addBlocks 1
+lockTrace :: EmulatorTrace ()
+lockTrace = do
+    let w1 = Wallet 1
+    hdl <- Trace.activateContractWallet w1 (game @ContractError)
+    Trace.callEndpoint @"lock" w1 hdl (LockParams "secret" (Ada.lovelaceValueOf 10))
+    void $ Trace.waitNSlots 1
 
-guessTrace
-    :: ContractTrace GameSchema e () ()
-guessTrace =
-    let w2 = Trace.Wallet 2 in
+guessTrace :: EmulatorTrace ()
+guessTrace = do
     lockTrace
-        >> Trace.callEndpoint @"guess" w2 (GuessParams "secret")
-        >> Trace.handleBlockchainEvents w2
-        >> Trace.addBlocks 1
+    let w2 = Wallet 2
+    hdl <- Trace.activateContractWallet w2 (game @ContractError)
+    Trace.callEndpoint @"guess" w2 hdl (GuessParams "secret")
 
-guessWrongTrace
-    :: ContractTrace GameSchema e () ()
-guessWrongTrace =
-    let w2 = Trace.Wallet 2 in
+guessWrongTrace :: EmulatorTrace ()
+guessWrongTrace = do
     lockTrace
-        >> Trace.callEndpoint @"guess" w2 (GuessParams "SECRET")
-        >> Trace.handleBlockchainEvents w2
-        >> Trace.addBlocks 1
+    let w2 = Wallet 2
+    hdl <- Trace.activateContractWallet w2 (game @ContractError)
+    Trace.callEndpoint @"guess" w2 hdl (GuessParams "SECRET")
