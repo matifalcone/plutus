@@ -38,7 +38,7 @@ import           Control.Monad.Except
 import qualified Data.Text                          as T
 import           Data.Text.Prettyprint.Doc
 import           Data.Text.Prettyprint.Doc.Internal (Doc (Text))
-
+import PlutusError
 {- Note [Annotations and equality]
 Equality of two errors DOES DEPEND on their annotations.
 So feel free to use @deriving Eq@ for errors.
@@ -87,8 +87,29 @@ deriving instance
     ) => Eq (NormCheckError tyname name uni fun ann)
 makeClassyPrisms ''NormCheckError
 
+-- | This error is returned whenever scope resolution of a 'DynamicBuiltinName' fails.
+newtype UnknownDynamicBuiltinNameError
+    = UnknownDynamicBuiltinNameErrorE DynamicBuiltinName
+    deriving (Show, Eq, Generic)
+    deriving newtype (NFData)
+makeClassyPrisms ''UnknownDynamicBuiltinNameError
+
+instance ErrorCode Language.PlutusCore.Error.UnknownDynamicBuiltinNameError where
+  errorCode
+    Language.PlutusCore.Error.UnknownDynamicBuiltinNameErrorE {}
+    = 17
+
+-- | An internal error occurred during type checking.
+data InternalTypeError uni ann
+    = OpenTypeOfBuiltin (Type TyName uni ()) BuiltinName
+    deriving (Show, Eq, Generic, NFData, Functor)
+makeClassyPrisms ''InternalTypeError
+
+instance ErrorCode (Language.PlutusCore.Error.InternalTypeError _a2_acYI _a1_acYH) where
+  errorCode Language.PlutusCore.Error.OpenTypeOfBuiltin {} = 18
+
 data TypeError term uni fun ann
-    = KindMismatch ann (Type TyName uni ()) (Kind ()) (Kind ())
+    = KindMismatch ann (Type TyName uni ()) (Kind ())  (Kind ())
     | TypeMismatch ann
         term
         (Type TyName uni ())
@@ -98,6 +119,14 @@ data TypeError term uni fun ann
     | UnknownBuiltinFunctionE ann fun
     deriving (Show, Eq, Generic, NFData, Functor)
 makeClassyPrisms ''TypeError
+
+instance ErrorCode (Language.PlutusCore.Error.TypeError _a3_acYQ _a2_acYP fun _a1_acYO) where
+    errorCode Language.PlutusCore.Error.FreeVariableE {} = 20
+    errorCode Language.PlutusCore.Error.FreeTypeVariableE {} = 19
+    errorCode Language.PlutusCore.Error.TypeMismatch {} = 16
+    errorCode Language.PlutusCore.Error.KindMismatch {} = 15
+    errorCode (UnknownDynamicBuiltinName _ e) = errorCode e
+    errorCode (InternalTypeErrorE _ e) = errorCode e
 
 data Error uni fun ann
     = ParseErrorE (ParseError ann)
@@ -150,9 +179,21 @@ instance ( Pretty ann
         ". Term" <+> squotes (prettyBy config t) <+>
         "is not a" <+> pretty expct <> "."
 
+instance Pretty UnknownDynamicBuiltinNameError where
+    pretty (UnknownDynamicBuiltinNameErrorE dbn) =
+        "Scope resolution failed on a dynamic built-in name:" <+> pretty dbn
+
+instance GShow uni => PrettyBy PrettyConfigPlc (InternalTypeError uni ann) where
+    prettyBy config (OpenTypeOfBuiltin ty bi)        =
+        asInternalError $
+            "The type" <+> prettyBy config ty <+>
+            "of the" <+> prettyBy config bi <+>
+            "built-in is open"
+
 instance (GShow uni, Closed uni, uni `Everywhere` PrettyConst,  Pretty ann, Pretty fun, Pretty term) =>
             PrettyBy PrettyConfigPlc (TypeError term uni fun ann) where
-    prettyBy config (KindMismatch ann ty k k')          =
+    prettyBy config e@(KindMismatch ann ty k k')          =
+        pretty (errorCode e) <> ":" <>
         "Kind mismatch at" <+> pretty ann <+>
         "in type" <+> squotes (prettyBy config ty) <>
         ". Expected kind" <+> squotes (prettyBy config k) <+>
