@@ -55,7 +55,7 @@ instance ErrorCode (Language.PlutusIR.Error.Error _a2_acYW _fun _a1_acYV) where
    errorCode Language.PlutusIR.Error.CompilationError {} = 2
    errorCode (PIRTypeError e) = errorCode e
    errorCode (PLCTypeError e) = errorCode e
-   errorCode _ = 0 -- FIXME: use underlying error
+   errorCode (PLCError e) = errorCode e
 
 
 instance PLC.AsTypeError (Error uni fun a) (PIR.Term PIR.TyName PIR.Name uni fun ()) uni fun a where
@@ -79,8 +79,8 @@ instance (PrettyUni uni ann) => PrettyBy PLC.PrettyConfigPlc (TypeErrorExt uni a
 instance (PrettyUni uni ann, Pretty fun) => Show (Error uni fun ann) where
     show = show . PP.pretty
 
-instance (PrettyUni uni ann, Typeable uni, Typeable fun, Typeable ann, Pretty fun) =>
-            Exception (Error uni fun ann)
+-- FIXME: we get rid of this when our TestLib stops using rethrow
+instance (PrettyUni uni ann, Typeable uni, Typeable fun, Typeable ann, Pretty fun) => Exception (Error uni fun ann)
 
 instance
         (Pretty ann, Pretty fun,

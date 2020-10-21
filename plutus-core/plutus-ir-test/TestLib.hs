@@ -6,6 +6,7 @@
 {-# LANGUAGE ScopedTypeVariables   #-}
 {-# LANGUAGE TypeOperators         #-}
 {-# LANGUAGE UndecidableInstances  #-}
+{-# LANGUAGE TypeApplications          #-}
 module TestLib where
 
 import           Common
@@ -98,12 +99,12 @@ ppCatch value = render <$> (either (pretty . show) prettyPlcClassicDebug <$> run
 goldenPlcFromPir :: ToTPlc a PLC.DefaultUni PLC.DefaultFun => Parser a -> String -> TestNested
 goldenPlcFromPir = goldenPirM (\ast -> ppThrow $ do
                                 p <- toTPlc ast
-                                withExceptT toException $ PLC.deBruijnProgram p)
+                                asIfThrown $ PLC.deBruijnProgram p)
 
 goldenPlcFromPirCatch :: ToTPlc a PLC.DefaultUni PLC.DefaultFun => Parser a -> String -> TestNested
 goldenPlcFromPirCatch = goldenPirM (\ast -> ppCatch $ do
                                            p <- toTPlc ast
-                                           withExceptT toException $ PLC.deBruijnProgram p)
+                                           asIfThrown $ PLC.deBruijnProgram p)
 
 goldenEvalPir :: ToUPlc a PLC.DefaultUni PLC.DefaultFun => Parser a -> String -> TestNested
 goldenEvalPir = goldenPirM (\ast -> ppThrow $ runUPlc [ast])
