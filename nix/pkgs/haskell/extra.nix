@@ -9,12 +9,10 @@
 , fetchFromGitHub
 , fetchFromGitLab
 , index-state
+, compiler-nix-name
 , checkMaterialization
 , buildPackages
 }:
-let
-  compiler-nix-name = "ghc8102";
-in
 {
   Agda = haskell-nix.hackage-package {
     name = "Agda";
