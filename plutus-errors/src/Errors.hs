@@ -1,8 +1,9 @@
 {-# LANGUAGE TemplateHaskell #-}
-module Errors (errors) where
+-- | The cataloguing of all Plutus errors, obsolete or not.
+module Errors (allErrors) where
 
-import Language.Haskell.TH
-import Language.Plutus.Common
+import Language.Haskell.TH as TH
+import ErrorCode
 
 import qualified Language.PlutusIR.Error as PIR
 import qualified Language.PlutusIR.Parser as PIR
@@ -13,89 +14,69 @@ import qualified Language.PlutusCore.Evaluation.Machine.Cek as PLC
 import qualified Language.UntypedPlutusCore.Evaluation.Machine.Cek as PLCU
 import qualified  Language.PlutusTx.Code as PTX
 import qualified  Language.PlutusTx.Lift.Class as PTX
-import qualified Language.PlutusTx.Utils as PTX
 import qualified  Language.PlutusTx.Compiler.Error as PTX
-import qualified Language.PlutusTx.Compiler.Expr as PTX
-import qualified Language.PlutusTx.Compiler.Type as PTX
-import qualified Language.PlutusTx.Compiler.Kind as PTX
-import qualified Language.PlutusTx.Compiler.Builtins as PTX
 
-{- | A collection of error instances and their codes that are deprecated.
-
-When an error is deprecated (does not trigger anymore) and (some of) its dataconstructors has been removed,
-and in case the error is "exposed" to the public, then it is required that its "deprecated" constructors
-be "moved" and listed/errorCoded under the umbrella datatype `plutus-errors:Errors.DeprecatedErrors`.
-
-See NOTE [Error Codes of plutus errors]
+{- | A collection of error instances which are obsolete, together with their error codes bundled to one instance.
+See plutus-errors/README.md
 -}
-{-# DEPRECATED DeprecatedErrors "These errors and their error codes *should* not be thrown by any plutus code anymore" #-}
-data DeprecatedErrors =
+{-# WARNING ObsoleteErrors "These errors and their error codes *should* not be thrown by any plutus code anymore" #-}
+data ObsoleteErrors =
     ReservedErrorCode
-    -- append here your deprecated errors
+    -- append here the obsolete errors
 
-instance ErrorCode DeprecatedErrors where
+instance ErrorCode ObsoleteErrors where
     errorCode ReservedErrorCode {} = 0
+    -- append here the corresponding obsolete error codes
 
--- | All errors among the whole project categorized. This includes both existing and deprecated errors.
---
--- Note: order of adding to this list does not matter at the moment.
-errors :: [Name]
-errors =
-   [ 'PIR.MalformedDataConstrResType
+-- | All errors among the whole Plutus project. This includes both existing and obsolete errors.
+-- Note: the order of adding to this list does not matter, except for haddock looks.
+allErrors :: [TH.Name]
+allErrors =
+   [ 'ReservedErrorCode
+   , 'PIR.MalformedDataConstrResType
    , 'PIR.CompilationError
    , 'PIR.UnsupportedError
    , 'PIR.UnexpectedKeyword
-    , 'PIR.InternalError
-    , 'PLC.LexErr
-    , 'PLC.Unexpected
-    , 'PLC.UnknownBuiltinType
-    , 'PLC.UnknownBuiltinFunction
-    , 'PLC.InvalidBuiltinConstant
-    , 'PLC.MultiplyDefined
-    , 'PLC.IncoherentUsage
-    , 'PLC.BadType
-    , 'PLC.BadTerm
-    , 'PLC.KindMismatch
-    , 'PLC.TypeMismatch
-    , 'PLC.UnknownDynamicBuiltinNameErrorE
-    , 'PLC.OpenTypeOfBuiltin
-    , 'PLC.FreeTypeVariableE
-    , 'PLC.FreeVariableE
-    , 'PLC.FreeVariable
-    , 'PLC.FreeUnique
-    , 'PLC.FreeIndex
-    , 'PLC.NonPolymorphicInstantiationMachineError
-    , 'PLC.NonWrapUnwrappedMachineError
-    , 'PLC.NonFunctionalApplicationMachineError
-    , 'PLC.OpenTermEvaluatedMachineError
-    , 'PLC.TooFewArgumentsConstAppError
-    , 'PLC.TooManyArgumentsConstAppError
-    , 'PLC.UnliftingErrorE
-    , 'PLC.BuiltinTermArgumentExpectedMachineError
-    , 'PLC.UnexpectedBuiltinTermArgumentMachineError
-    , 'PLC.EmptyBuiltinArityMachineError
-    , 'PLC.CekOutOfExError
-    , 'PLC.CekEvaluationFailure
-    , 'PLCU.CekOutOfExError
-    , 'PLCU.CekEvaluationFailure
-    , 'PTX.ImpossibleDeserialisationFailure
-    -- -- Language.PlutusTx.Lift.Class,Prelude.error $ "Unknown local variable: " ++ show name
-    -- -- Language.PlutusTx.Lift.Class,Prelude.error $ "Constructors not created for " ++ show tyName
-    -- -- Language.PlutusTx.Lift.Class,dieTH "Newtypes must have a single constructor with a single argument"
-    -- -- Language.PlutusTx.Lift.Class,dieTH "Newtypes must have a single constructor with a single argument"
-    -- -- Language.PlutusTx.Lift.Class,dieTH $ "Unsupported kind: " ++ show k
-    -- -- Language.PlutusTx.Lift.Class,dieTH $ "Unsupported type: " ++ show t
-    -- -- Language.PlutusTx.Utils,mustbeReplaced,GHC.Exception.ErrorCall -- for "plutustx" user-error-builtin run by ghc
-    , 'PTX.CompilationError
-    , 'PTX.UnsupportedError
-    , 'PTX.FreeVariableError
-    , 'PTX.UnsupportedLiftType
-    , 'PTX.UnsupportedLiftKind
-    , 'PTX.UserLiftError
-    , 'PTX.LiftMissingDataCons
-    , 'PTX.LiftMissingVar
-    -- -- Language.PlutusTx.Plugin,failCompilation $ "Unable to get Core name needed for the plugin to function: " ++ show name
-    , 'ReservedErrorCode
-    --, 'PLC.OtherMachineError -- we don't need this one, it is a wrapper
-    -- , 'PLC.ConstAppMachineError -- we don't need this one, it is a wrapper
-    ]
+   , 'PIR.InternalError
+   , 'PLC.LexErr
+   , 'PLC.Unexpected
+   , 'PLC.UnknownBuiltinType
+   , 'PLC.UnknownBuiltinFunction
+   , 'PLC.InvalidBuiltinConstant
+   , 'PLC.MultiplyDefined
+   , 'PLC.IncoherentUsage
+   , 'PLC.BadType
+   , 'PLC.BadTerm
+   , 'PLC.KindMismatch
+   , 'PLC.TypeMismatch
+   , 'PLC.UnknownDynamicBuiltinNameErrorE
+   , 'PLC.OpenTypeOfBuiltin
+   , 'PLC.FreeTypeVariableE
+   , 'PLC.FreeVariableE
+   , 'PLC.FreeVariable
+   , 'PLC.FreeUnique
+   , 'PLC.FreeIndex
+   , 'PLC.NonPolymorphicInstantiationMachineError
+   , 'PLC.NonWrapUnwrappedMachineError
+   , 'PLC.NonFunctionalApplicationMachineError
+   , 'PLC.OpenTermEvaluatedMachineError
+   , 'PLC.TooFewArgumentsConstAppError
+   , 'PLC.TooManyArgumentsConstAppError
+   , 'PLC.UnliftingErrorE
+   , 'PLC.BuiltinTermArgumentExpectedMachineError
+   , 'PLC.UnexpectedBuiltinTermArgumentMachineError
+   , 'PLC.EmptyBuiltinArityMachineError
+   , 'PLC.CekOutOfExError
+   , 'PLC.CekEvaluationFailure
+   , 'PLCU.CekOutOfExError
+   , 'PLCU.CekEvaluationFailure
+   , 'PTX.ImpossibleDeserialisationFailure
+   , 'PTX.CompilationError
+   , 'PTX.UnsupportedError
+   , 'PTX.FreeVariableError
+   , 'PTX.UnsupportedLiftType
+   , 'PTX.UnsupportedLiftKind
+   , 'PTX.UserLiftError
+   , 'PTX.LiftMissingDataCons
+   , 'PTX.LiftMissingVar
+   ]

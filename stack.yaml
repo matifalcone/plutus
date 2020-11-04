@@ -21,6 +21,7 @@ packages:
 - prettyprinter-configurable
 - doc
 - web-ghc
+- plutus-errors
 
 extra-deps:
 # Flat compression

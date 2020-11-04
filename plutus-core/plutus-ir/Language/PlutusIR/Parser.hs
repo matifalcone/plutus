@@ -42,7 +42,7 @@ import qualified Data.Text                          as T
 import qualified Control.Monad.Combinators.NonEmpty as NE
 import           Text.Megaparsec.Char
 import qualified Text.Megaparsec.Char.Lexer         as Lex
-import Language.Plutus.Common
+import ErrorCode
 
 
 
@@ -53,9 +53,9 @@ data ParseError = UnknownBuiltinType T.Text
                 | InvalidConstant T.Text T.Text
                 deriving (Eq, Ord, Show)
 
-instance ErrorCode Language.PlutusIR.Parser.ParseError where
-      errorCode Language.PlutusIR.Parser.InternalError {} = 5
-      errorCode Language.PlutusIR.Parser.UnexpectedKeyword {} = 4
+instance ErrorCode ParseError where
+      errorCode InternalError {} = 5
+      errorCode UnexpectedKeyword {} = 4
 
 type Error = Parsec.ParseError Char ParseError
 

@@ -127,6 +127,7 @@ library
 
         PlutusPrelude
         Common
+        ErrorCode
         Data.ByteString.Hash
         PlcTestUtils
         Crypto
@@ -267,8 +268,7 @@ library
         data-default-class -any,
         transformers -any,
         witherable -any,
-        Stream -any,
-        plutus-common -any
+        Stream -any
 
 executable plutus-core-generate-evaluation-test
     import: lang

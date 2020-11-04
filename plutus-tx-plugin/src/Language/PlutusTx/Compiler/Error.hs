@@ -29,7 +29,7 @@ import           Control.Monad.Except
 import qualified Data.Text                         as T
 import qualified Data.Text.Prettyprint.Doc         as PP
 import           Data.Typeable
-import Language.Plutus.Common
+import ErrorCode
 
 -- | An error with some (nested) context. The integer argument to 'WithContextC' represents
 -- the priority of the context when displaying it. Lower numbers are more prioritised.
@@ -72,11 +72,10 @@ data Error uni fun a = PLCError (PLC.Error uni fun a)
                      deriving Typeable
 makeClassyPrisms ''Error
 
-instance ErrorCode (Language.PlutusTx.Compiler.Error.Error _a2_acZ0 _a1_acYZ) where
-      errorCode Language.PlutusTx.Compiler.Error.FreeVariableError {}
-        = 43
-      errorCode Language.PlutusTx.Compiler.Error.UnsupportedError {} = 42
-      errorCode Language.PlutusTx.Compiler.Error.CompilationError {} = 41
+instance ErrorCode (Error _a _b) where
+      errorCode FreeVariableError {} = 43
+      errorCode UnsupportedError {} = 42
+      errorCode CompilationError {} = 41
       errorCode (PLCError e) = errorCode e
       errorCode (PIRError e) = errorCode e
 

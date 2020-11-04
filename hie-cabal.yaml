@@ -135,4 +135,14 @@ cradle:
   - path: ./plutus-benchmark/nofib/test
     config: { cradle: {cabal: {component: "plutus-benchmark:plutus-benchmark-nofib-tests" } } }
 
+  - path: ./plutus-errors/src
+    config: { cradle: { cabal: { component: "lib:plutus-errors" } } }
+  - path: ./plutus-errors/exe-next
+    config: { cradle: { cabal: { component: "exe:plutus-errors-next" } } }
+  - path: ./plutus-errors/exe-bootstrap
+    config: { cradle: { cabal: { component: "exe:plutus-errors-bootstrap" } } }
+  - path: ./plutus-errors/test
+    config: { cradle: { cabal: { component: "test:plutus-errors-test" } } }
+
+
 # Add more as needed, I'm too lazy
