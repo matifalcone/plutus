@@ -59,6 +59,7 @@ instance ErrorCode (Error _a _b _c) where
 
 
 instance PLC.AsTypeError (Error uni fun a) (PIR.Term PIR.TyName PIR.Name uni fun ()) uni fun a where
+    _TypeError = _PLCTypeError
 
 instance AsTypeErrorExt (Error uni fun a) uni a where
     _TypeErrorExt = _PIRTypeError

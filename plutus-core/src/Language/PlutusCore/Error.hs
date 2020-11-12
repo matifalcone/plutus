@@ -86,21 +86,6 @@ deriving instance
     ) => Eq (NormCheckError tyname name uni fun ann)
 makeClassyPrisms ''NormCheckError
 
--- | This error is returned whenever scope resolution of a 'DynamicBuiltinName' fails.
-newtype UnknownDynamicBuiltinNameError
-    = UnknownDynamicBuiltinNameErrorE DynamicBuiltinName
-    deriving (Show, Eq, Generic)
-    deriving newtype (NFData)
-makeClassyPrisms ''UnknownDynamicBuiltinNameError
-
-
--- | An internal error occurred during type checking.
-data InternalTypeError uni ann
-    = OpenTypeOfBuiltin (Type TyName uni ()) BuiltinName
-    deriving (Show, Eq, Generic, NFData, Functor)
-makeClassyPrisms ''InternalTypeError
-
-
 data TypeError term uni fun ann
     = KindMismatch ann (Type TyName uni ()) (Kind ())  (Kind ())
     | TypeMismatch ann
@@ -164,17 +149,6 @@ instance ( Pretty ann
         ". Term" <+> squotes (prettyBy config t) <+>
         "is not a" <+> pretty expct <> "."
 
-instance Pretty UnknownDynamicBuiltinNameError where
-    pretty (UnknownDynamicBuiltinNameErrorE dbn) =
-        "Scope resolution failed on a dynamic built-in name:" <+> pretty dbn
-
-instance GShow uni => PrettyBy PrettyConfigPlc (InternalTypeError uni ann) where
-    prettyBy config (OpenTypeOfBuiltin ty bi)        =
-        asInternalError $
-            "The type" <+> prettyBy config ty <+>
-            "of the" <+> prettyBy config bi <+>
-            "built-in is open"
-
 instance (GShow uni, Closed uni, uni `Everywhere` PrettyConst,  Pretty ann, Pretty fun, Pretty term) =>
             PrettyBy PrettyConfigPlc (TypeError term uni fun ann) where
     prettyBy config e@(KindMismatch ann ty k k')          =
@@ -221,25 +195,18 @@ instance ErrorCode (UniqueError _a) where
       errorCode IncoherentUsage {} = 12
       errorCode MultiplyDefined {} = 11
 
-instance ErrorCode (NormCheckError _a _b _c _d) where
+instance ErrorCode (NormCheckError _a _b _c _d _e) where
       errorCode BadTerm {} = 14
       errorCode BadType {} = 13
-
-instance ErrorCode UnknownDynamicBuiltinNameError where
-    errorCode  UnknownDynamicBuiltinNameErrorE {}  = 17
-
-instance ErrorCode (InternalTypeError _a _b) where
-  errorCode OpenTypeOfBuiltin {} = 18
 
 instance ErrorCode (TypeError _a _b _c _d) where
     errorCode FreeVariableE {} = 20
     errorCode FreeTypeVariableE {} = 19
     errorCode TypeMismatch {} = 16
     errorCode KindMismatch {} = 15
-    errorCode (UnknownDynamicBuiltinName _ e) = errorCode e
-    errorCode (InternalTypeErrorE _ e) = errorCode e
+    errorCode UnknownBuiltinFunctionE {} = 18
 
-instance ErrorCode (Error _a _b) where
+instance ErrorCode (Error _a _b _c) where
     errorCode (ParseErrorE e) = errorCode e
     errorCode (UniqueCoherencyErrorE e) = errorCode e
     errorCode (TypeErrorE e) = errorCode e

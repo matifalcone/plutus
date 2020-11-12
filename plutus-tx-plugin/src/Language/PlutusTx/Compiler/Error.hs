@@ -72,7 +72,7 @@ data Error uni fun a = PLCError (PLC.Error uni fun a)
                      deriving Typeable
 makeClassyPrisms ''Error
 
-instance ErrorCode (Error _a _b) where
+instance ErrorCode (Error _a _b _c) where
       errorCode FreeVariableError {} = 43
       errorCode UnsupportedError {} = 42
       errorCode CompilationError {} = 41

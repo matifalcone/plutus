@@ -36,8 +36,8 @@ allErrors =
    , 'PIR.MalformedDataConstrResType
    , 'PIR.CompilationError
    , 'PIR.UnsupportedError
-   , 'PIR.UnexpectedKeyword
-   , 'PIR.InternalError
+   , 'PIR.UnknownBuiltinType
+   , 'PIR.InvalidConstant
    , 'PLC.LexErr
    , 'PLC.Unexpected
    , 'PLC.UnknownBuiltinType
@@ -49,8 +49,7 @@ allErrors =
    , 'PLC.BadTerm
    , 'PLC.KindMismatch
    , 'PLC.TypeMismatch
-   , 'PLC.UnknownDynamicBuiltinNameErrorE
-   , 'PLC.OpenTypeOfBuiltin
+   , 'PLC.UnknownBuiltinFunctionE
    , 'PLC.FreeTypeVariableE
    , 'PLC.FreeVariableE
    , 'PLC.FreeVariable

@@ -237,7 +237,7 @@ instance (PrettyPlc term, PrettyPlc err, Typeable term, Typeable err) =>
 instance ErrorCode UnliftingError where
       errorCode        UnliftingErrorE {}        = 30
 
-instance ErrorCode (ConstAppError _a) where
+instance ErrorCode (ConstAppError _a _b) where
       errorCode        TooManyArgumentsConstAppError {}        = 29
       errorCode        TooFewArgumentsConstAppError {}        = 28
       errorCode (UnliftingConstAppError e) = errorCode e
@@ -251,11 +251,9 @@ instance ErrorCode (MachineError err _a) where
       errorCode        NonWrapUnwrappedMachineError {}        = 25
       errorCode        NonPolymorphicInstantiationMachineError {}        = 24
       errorCode        (ConstAppMachineError e)        = errorCode e
-      -- clone of: https://github.com/input-output-hk/plutus/blob/7dda61b854d44b3d23407446b4b3acedef4a4c1b/plutus-core/src/Language/PlutusCore/Error.hs#L243-L244
-      -- FIXME: use `errorCode e` once we transition to error-groups instead of open error-datatypes
-      errorCode        (OtherMachineError _)        = 17
+      errorCode        UnknownBuiltin {}        = 17
 
-instance (ErrorCode user) => ErrorCode (EvaluationError other user _t) where
+instance (ErrorCode user) => ErrorCode (EvaluationError user _a _b) where
   errorCode (InternalEvaluationError e) = errorCode e
   errorCode (UserEvaluationError e) = errorCode e
 
