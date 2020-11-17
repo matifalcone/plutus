@@ -5,8 +5,9 @@ import Control.Monad.Reader (runReaderT)
 import Data.Function (flip)
 import Data.Lens (assign)
 import Data.List (List(..), foldl, fromFoldable, length, snoc, toUnfoldable)
-import Data.List.NonEmpty (fromList)
-import Data.Maybe (Maybe(..), maybe)
+import Data.List.NonEmpty (NonEmptyList(..))
+import Data.Maybe (Maybe(..))
+import Data.NonEmpty ((:|))
 import Data.Tuple.Nested (type (/\), (/\))
 import Effect.Aff.Class (class MonadAff)
 import Halogen (HalogenM)
@@ -22,7 +23,7 @@ import Network.RemoteData as RemoteData
 import Prelude (Void, bind, discard, map, pure, ($), (+), (-), (/=), (<$>), (<>))
 import Servant.PureScript.Ajax (AjaxError(..))
 import Servant.PureScript.Settings (SPSettings_)
-import Simulation.Types (Action, AnalysisState(..), ContractPath, ContractPathStep(..), ContractZipper(..), InProgressRecord, ReachabilityAnalysisData(..), RemainingSubProblemInfo, State, WebData, _analysisState)
+import Simulation.Types (Action, AnalysisState(..), ContractPath, ContractPathStep(..), ContractZipper(..), ReachabilityAnalysisData(..), RemainingSubProblemInfo, State, WebData, InProgressRecord, _analysisState)
 
 splitArray :: forall a. List a -> List (List a /\ a /\ List a)
 splitArray x = splitArrayAux Nil x
@@ -254,6 +255,11 @@ stepSubproblem isReachable ( rad@{ currPath: oldPath
 
   newResults = results <> (if isReachable then Nil else Cons oldPath Nil)
 
+finishAnalysis :: InProgressRecord -> ReachabilityAnalysisData
+finishAnalysis { originalState, unreachableSubcontracts: Cons h t } = UnreachableSubcontract { originalState, unreachableSubcontracts: NonEmptyList (h :| t) }
+
+finishAnalysis { unreachableSubcontracts: Nil } = AllReachable
+
 stepAnalysis :: forall m. MonadAff m => SPSettings_ SPParams_ -> Boolean -> InProgressRecord -> HalogenM State Action ChildSlots Void m ReachabilityAnalysisData
 stepAnalysis settings isReachable rad =
   let
@@ -264,7 +270,7 @@ stepAnalysis settings isReachable rad =
       response <- checkContractForReachability settings (newRad.currContract) (newRad.originalState)
       updateWithResponse settings (InProgress newRad) response
     else
-      pure (maybe AllReachable UnreachableSubcontract (fromList newRad.unreachableSubcontracts))
+      pure $ finishAnalysis newRad
 
 updateWithResponse ::
   forall m.

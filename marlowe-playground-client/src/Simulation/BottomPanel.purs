@@ -511,13 +511,13 @@ analysisResultPane state =
                     ]
                 ]
             ]
-        UnreachableSubcontract contractPaths ->
+        UnreachableSubcontract { unreachableSubcontracts } ->
           explanation
             ( [ h3 [ classes [ ClassName "analysis-result-title" ] ] [ text "Reachability Analysis Result: Unreachable Subcontract Found" ]
               , text "Static analysis found the following subcontracts that are unreachable:"
               ]
                 <> [ ul [ classes [ ClassName "indented-enum-initial" ] ] do
-                      contractPath <- toUnfoldable (toList contractPaths)
+                      contractPath <- toUnfoldable (toList unreachableSubcontracts)
                       pure (li_ [ text (show contractPath) ])
                   ]
             )

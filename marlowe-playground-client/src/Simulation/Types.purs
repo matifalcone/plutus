@@ -75,11 +75,16 @@ type InProgressRecord
     , unreachableSubcontracts :: List ContractPath
     }
 
+type UnreachableSubcontractRecord
+  = { originalState :: S.State
+    , unreachableSubcontracts :: NonEmptyList ContractPath
+    }
+
 data ReachabilityAnalysisData
   = NotStarted
   | InProgress InProgressRecord
   | ReachabilityFailure String
-  | UnreachableSubcontract (NonEmptyList ContractPath)
+  | UnreachableSubcontract UnreachableSubcontractRecord
   | AllReachable
 
 data AnalysisState
